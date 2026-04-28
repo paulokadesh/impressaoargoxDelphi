@@ -1,4 +1,4 @@
-unit EtiquetaML;
+﻿unit EtiquetaML;
 
 interface
 
@@ -17,6 +17,7 @@ uses
   Vcl.Forms,
   Vcl.Dialogs,
   Vcl.StdCtrls,
+  Vcl.ComCtrls,
   Vcl.Printers, Vcl.ExtCtrls;
 
 type
@@ -30,6 +31,10 @@ type
     chkNormalizar: TCheckBox;
     lblDpi: TLabel;
     edtDpi: TEdit;
+    lblFonte: TLabel;
+    cbFontePpla: TComboBox;
+    lblFonteHri: TLabel;
+    cbFonteHri: TComboBox;
     btnImprimirPpla: TButton;
     lblRange: TLabel;
     edtFrom: TEdit;
@@ -47,6 +52,8 @@ type
     procedure LoadPrinters;
     function SelectedPrinter: string;
     function ReadDpi: Integer;
+    function ReadPplaFontId: Char;
+    function ReadPplaHriFontId: Char;
     procedure ReadLabelRange(out FromIndex, ToIndex: Integer);
     function EnsureLabelSizePerFormat(const ZplText: string; const WidthDots, HeightDots: Integer): string;
     procedure SendRawToPrinter(const PrinterName: string; const Data: TBytes; const DocName: string);
@@ -108,6 +115,35 @@ begin
   Result := StrToIntDef(Trim(edtDpi.Text), 203);
   if Result <= 0 then
     Result := 203;
+end;
+
+function TForm1.ReadPplaFontId: Char;
+var
+  S: string;
+begin
+  // Fontes PPLA variam por modelo; mantemos simples: 1..9.
+  if (cbFontePpla <> nil) then
+    S := Trim(cbFontePpla.Text)
+  else
+    S := '';
+  if (Length(S) = 1) and CharInSet(S[1], ['1'..'9']) then
+    Result := S[1]
+  else
+    Result := '2';
+end;
+
+function TForm1.ReadPplaHriFontId: Char;
+var
+  S: string;
+begin
+  if cbFonteHri <> nil then
+    S := Trim(cbFonteHri.Text)
+  else
+    S := '';
+  if (Length(S) = 1) and CharInSet(S[1], ['1'..'9']) then
+    Result := S[1]
+  else
+    Result := ReadPplaFontId; // fallback: mesma fonte do texto geral
 end;
 
 procedure TForm1.ReadLabelRange(out FromIndex, ToIndex: Integer);
@@ -409,6 +445,15 @@ begin
   Result := Copy(Line, P + Length(Cmd), MaxInt);
 end;
 
+function EstimateTextWidthDots(const Text: string; const FontHeightDots, ScaleH: Integer): Integer;
+var
+  AvgCharDots: Integer;
+begin
+  // Mesma heurística do WrapTextApprox: largura média ~ 0.6 * altura da fonte.
+  AvgCharDots := Max(1, Round(FontHeightDots * 0.6));
+  Result := Length(Text) * AvgCharDots * ScaleH;
+end;
+
 function TForm1.ZplToPplaOneFormat(const ZplFormat: string; const LabelWidthDots, LabelHeightDots: Integer;
   out Copies: Integer): string;
 const
@@ -439,6 +484,12 @@ var
   CurXShifted: Integer;
   CenteredBarcodeX: Integer;
   NarrowDots, WideDots, ApproxBarcodeDots: Integer;
+  // HRI (texto humano) abaixo do código de barras
+  HriScaleH, HriScaleV: Integer;
+  HriFontH: Integer;
+  TextDots: Integer;
+  CenteredTextX: Integer;
+  YpplaText: Integer;
 begin
   Copies := 1;
   CurX := 0;
@@ -449,11 +500,14 @@ begin
   FbWidth := 0;
   FbMaxLines := 0;
   PendingBarcode := False;
-  BarcodeHeight := 80;
+  BarcodeHeight := 40;
   BarcodeWide := '2';
   BarcodeNarrow := '1';
   Dir := '1'; // Portrait
-  GlobalXShift := 30; // ajuste fino: empurra tudo para a direita (dots @203dpi)
+  GlobalXShift := 80; // ajuste fino: empurra tudo para a direita (dots @203dpi)
+  HriScaleH := 2;
+  HriScaleV := 2;
+  HriFontH := 16; // base aproximada da fonte PPLA (antes do scale)
 
   Lines := ZplFormat.Replace(#13, '').Split([#10], TStringSplitOptions.ExcludeEmpty);
   Cmds := TStringBuilder.Create;
@@ -605,6 +659,30 @@ begin
           Cmds.Append(Format('%.4d', [ClampInt(CenteredBarcodeX, 0, 9999)]));
           Cmds.Append(FieldData);
           Cmds.Append(CR);
+
+          // HRI (texto) abaixo do barcode:
+          // O PPLA "E" nem sempre dá controle do texto humano; então imprimimos
+          // o FieldData como texto separado, centralizado logo abaixo.
+          if (FieldData <> '') then
+          begin
+            // posição em ZPL: abaixo do barcode (CurY + BarcodeHeight + margem)
+            YpplaText := LabelHeightDots - (CurY + BarcodeHeight + 8 + (HriFontH * HriScaleV));
+            YpplaText := ClampInt(YpplaText, 0, LabelHeightDots);
+
+            TextDots := EstimateTextWidthDots(FieldData, HriFontH, HriScaleH);
+            CenteredTextX := (LabelWidthDots - TextDots) div 2;
+            CenteredTextX := ClampInt(CenteredTextX, 0, LabelWidthDots);
+
+            Cmds.Append(Dir);
+            Cmds.Append(ReadPplaHriFontId);
+            Cmds.Append(ScaleToPplaChar(HriScaleH));
+            Cmds.Append(ScaleToPplaChar(HriScaleV));
+            Cmds.Append('000');
+            Cmds.Append(Format('%.4d', [YpplaText]));
+            Cmds.Append(Format('%.4d', [ClampInt(CenteredTextX, 0, 9999)]));
+            Cmds.Append(FieldData);
+            Cmds.Append(CR);
+          end;
         end
         else
         begin
@@ -626,7 +704,7 @@ begin
             Yppla := ClampInt(Yppla, 0, LabelHeightDots);
 
             Cmds.Append(Dir);
-            Cmds.Append('2'); // font 2 (alfa-numérico comum)
+            Cmds.Append(ReadPplaFontId); // fonte PPLA selecionada na UI
             Cmds.Append(ScaleToPplaChar(ScaleH));
             Cmds.Append(ScaleToPplaChar(ScaleV));
             Cmds.Append('000'); // subfont
@@ -716,8 +794,39 @@ begin
 end;
 
 procedure TForm1.FormCreate(Sender: TObject);
+var
+  i: Integer;
 begin
   LoadPrinters;
+  // Popular o combo em runtime para não depender do DFM.
+  if cbFontePpla <> nil then
+  begin
+    cbFontePpla.Items.BeginUpdate;
+    try
+      cbFontePpla.Items.Clear;
+      for i := 1 to 6 do
+        cbFontePpla.Items.Add(i.ToString);
+    finally
+      cbFontePpla.Items.EndUpdate;
+    end;
+    cbFontePpla.ItemIndex := cbFontePpla.Items.IndexOf('2');
+    if cbFontePpla.ItemIndex < 0 then
+      cbFontePpla.ItemIndex := 0;
+  end;
+  if cbFonteHri <> nil then
+  begin
+    cbFonteHri.Items.BeginUpdate;
+    try
+      cbFonteHri.Items.Clear;
+      for i := 1 to 6 do
+        cbFonteHri.Items.Add(i.ToString);
+    finally
+      cbFonteHri.Items.EndUpdate;
+    end;
+    cbFonteHri.ItemIndex := cbFonteHri.Items.IndexOf('2');
+    if cbFonteHri.ItemIndex < 0 then
+      cbFonteHri.ItemIndex := 0;
+  end;
   Log('Pronto.');
 end;
 
@@ -782,8 +891,6 @@ begin
   Bytes := TFile.ReadAllBytes(FileName);
   Result := TEncoding.UTF8.GetString(Bytes);
 end;
-
-
 
 
 

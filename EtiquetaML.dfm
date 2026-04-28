@@ -33,6 +33,20 @@ object Form1: TForm1
     Height = 15
     Caption = 'DPI'
   end
+  object lblFonte: TLabel
+    Left = 424
+    Top = 136
+    Width = 30
+    Height = 15
+    Caption = 'Fonte'
+  end
+  object lblFonteHri: TLabel
+    Left = 544
+    Top = 136
+    Width = 56
+    Height = 15
+    Caption = 'Fonte (CB)'
+  end
   object lblRange: TLabel
     Left = 16
     Top = 168
@@ -91,13 +105,47 @@ object Form1: TForm1
     TabOrder = 5
     Text = '203'
   end
+  object cbFontePpla: TComboBox
+    Left = 464
+    Top = 132
+    Width = 65
+    Height = 23
+    Style = csDropDownList
+    ItemIndex = 1
+    TabOrder = 6
+    Text = '2'
+    Items.Strings = (
+      '1'
+      '2'
+      '3'
+      '4'
+      '5'
+      '6')
+  end
+  object cbFonteHri: TComboBox
+    Left = 616
+    Top = 132
+    Width = 65
+    Height = 23
+    Style = csDropDownList
+    ItemIndex = 1
+    TabOrder = 7
+    Text = '2'
+    Items.Strings = (
+      '1'
+      '2'
+      '3'
+      '4'
+      '5'
+      '6')
+  end
   object btnImprimirPpla: TButton
     Left = 281
     Top = 161
     Width = 88
     Height = 25
     Caption = 'Imprimir'
-    TabOrder = 6
+    TabOrder = 8
     OnClick = btnImprimirPplaClick
   end
   object edtFrom: TEdit
@@ -105,14 +153,14 @@ object Form1: TForm1
     Top = 165
     Width = 57
     Height = 23
-    TabOrder = 8
+    TabOrder = 10
   end
   object edtTo: TEdit
     Left = 184
     Top = 165
     Width = 57
     Height = 23
-    TabOrder = 9
+    TabOrder = 11
   end
   object Panel1: TPanel
     Left = 0
@@ -121,7 +169,7 @@ object Form1: TForm1
     Height = 284
     Align = alBottom
     Caption = 'Panel1'
-    TabOrder = 7
+    TabOrder = 9
     object MemoLog: TMemo
       Left = 1
       Top = 1
