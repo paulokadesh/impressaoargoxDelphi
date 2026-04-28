@@ -2,8 +2,8 @@ object Form1: TForm1
   Left = 0
   Top = 0
   Caption = 'Impress'#195#163'o ZPL (Argox)'
-  ClientHeight = 441
-  ClientWidth = 624
+  ClientHeight = 508
+  ClientWidth = 699
   Color = clBtnFace
   Font.Charset = DEFAULT_CHARSET
   Font.Color = clWindowText
@@ -33,6 +33,13 @@ object Form1: TForm1
     Height = 15
     Caption = 'DPI'
   end
+  object lblRange: TLabel
+    Left = 16
+    Top = 168
+    Width = 93
+    Height = 15
+    Caption = 'Etiquetas (de-at'#233')'
+  end
   object edtArquivo: TEdit
     Left = 16
     Top = 36
@@ -41,7 +48,7 @@ object Form1: TForm1
     TabOrder = 0
   end
   object btnArquivo: TButton
-    Left = 536
+    Left = 535
     Top = 35
     Width = 75
     Height = 25
@@ -71,7 +78,7 @@ object Form1: TForm1
     Top = 136
     Width = 273
     Height = 17
-    Caption = 'For'#195#167'ar tamanho 10cm x 5cm (injeta ^PW/^LL)'
+    Caption = 'Formatar tamanho 10cm x 5cm (injeta ^PW/^LL)'
     Checked = True
     State = cbChecked
     TabOrder = 4
@@ -84,91 +91,51 @@ object Form1: TForm1
     TabOrder = 5
     Text = '203'
   end
-  object btnImprimir: TButton
-    Left = 454
-    Top = 159
-    Width = 75
+  object btnImprimirPpla: TButton
+    Left = 281
+    Top = 161
+    Width = 88
     Height = 25
     Caption = 'Imprimir'
     TabOrder = 6
-    OnClick = btnImprimirClick
-  end
-  object btnImprimirPpla: TButton
-    Left = 352
-    Top = 161
-    Width = 75
-    Height = 25
-    Caption = 'PPLA'
-    TabOrder = 10
     OnClick = btnImprimirPplaClick
   end
-  object btnPreview: TButton
-    Left = 129
-    Top = 159
-    Width = 89
-    Height = 25
-    Caption = 'Preview (PDF)'
+  object edtFrom: TEdit
+    Left = 121
+    Top = 165
+    Width = 57
+    Height = 23
     TabOrder = 8
-    OnClick = btnPreviewClick
   end
-  object btnSalvarZpl: TButton
-    Left = 16
-    Top = 159
-    Width = 89
-    Height = 25
-    Caption = 'Salvar ZPL'
+  object edtTo: TEdit
+    Left = 184
+    Top = 165
+    Width = 57
+    Height = 23
     TabOrder = 9
-    OnClick = btnSalvarZplClick
-  end
-  object btnTeste: TButton
-    Left = 241
-    Top = 159
-    Width = 89
-    Height = 25
-    Caption = 'Teste ZPL'
-    TabOrder = 7
-    OnClick = btnTesteClick
   end
   object Panel1: TPanel
     Left = 0
-    Top = 208
-    Width = 624
-    Height = 233
+    Top = 224
+    Width = 699
+    Height = 284
     Align = alBottom
     Caption = 'Panel1'
-    TabOrder = 11
+    TabOrder = 7
     object MemoLog: TMemo
       Left = 1
       Top = 1
-      Width = 622
-      Height = 231
+      Width = 697
+      Height = 282
       Align = alClient
       ReadOnly = True
       ScrollBars = ssVertical
       TabOrder = 0
-      ExplicitLeft = 0
-      ExplicitTop = -48
-      ExplicitWidth = 611
-      ExplicitHeight = 209
     end
   end
   object OpenDialog1: TOpenDialog
     Filter = 'Arquivos texto (*.txt)|*.txt|Todos (*.*)|*.*'
-    Left = 560
-    Top = 176
-  end
-  object SaveDialog1: TSaveDialog
-    DefaultExt = 'pdf'
-    Filter = 'PDF (*.pdf)|*.pdf'
-    Options = [ofOverwritePrompt, ofPathMustExist, ofEnableSizing]
-    Left = 560
-    Top = 224
-  end
-  object SaveDialog2: TSaveDialog
-    DefaultExt = 'zpl'
-    Filter = 'ZPL (*.zpl)|*.zpl|Texto (*.txt)|*.txt|Todos (*.*)|*.*'
-    Options = [ofOverwritePrompt, ofPathMustExist, ofEnableSizing]
-    Left = 560
-    Top = 272
+    Left = 536
+    Top = 360
   end
 end

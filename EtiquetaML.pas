@@ -1,4 +1,4 @@
-﻿unit EtiquetaML;
+unit EtiquetaML;
 
 interface
 
@@ -6,16 +6,12 @@ uses
   Winapi.Windows,
   Winapi.Messages,
   Winapi.WinSpool,
-  Winapi.ShellAPI,
   System.SysUtils,
   System.Variants,
   System.Classes,
   System.Math,
   System.StrUtils,
   System.IOUtils,
-  System.Net.URLClient,
-  System.Net.HttpClient,
-  System.Net.HttpClientComponent,
   Vcl.Graphics,
   Vcl.Controls,
   Vcl.Forms,
@@ -34,41 +30,31 @@ type
     chkNormalizar: TCheckBox;
     lblDpi: TLabel;
     edtDpi: TEdit;
-    btnImprimir: TButton;
     btnImprimirPpla: TButton;
-    btnPreview: TButton;
-    btnSalvarZpl: TButton;
-    btnTeste: TButton;
+    lblRange: TLabel;
+    edtFrom: TEdit;
+    edtTo: TEdit;
     OpenDialog1: TOpenDialog;
-    SaveDialog1: TSaveDialog;
-    SaveDialog2: TSaveDialog;
     Panel1: TPanel;
     MemoLog: TMemo;
     procedure FormCreate(Sender: TObject);
     procedure btnAtualizarClick(Sender: TObject);
     procedure btnArquivoClick(Sender: TObject);
-    procedure btnImprimirClick(Sender: TObject);
     procedure btnImprimirPplaClick(Sender: TObject);
-    procedure btnPreviewClick(Sender: TObject);
-    procedure btnSalvarZplClick(Sender: TObject);
-    procedure btnTesteClick(Sender: TObject);
+
   private
     procedure Log(const S: string);
     procedure LoadPrinters;
     function SelectedPrinter: string;
     function ReadDpi: Integer;
+    procedure ReadLabelRange(out FromIndex, ToIndex: Integer);
     function EnsureLabelSizePerFormat(const ZplText: string; const WidthDots, HeightDots: Integer): string;
     procedure SendRawToPrinter(const PrinterName: string; const Data: TBytes; const DocName: string);
     function GetZplFromSelectedFile: string;
-    function BuildFinalZpl(const ZplText: string): string;
-    function LimitZplForLabelaryPreview(const ZplText: string; const MaxFormats: Integer): string;
-    function BuildLabelaryUrlForPdf(const Dpi: Integer; const WidthCm, HeightCm: Double): string;
-    procedure SaveBytesToFileAndOpen(const Bytes: TBytes; const FilePath: string);
-    function StreamToBytes(Stream: TStream): TBytes;
     function DecodeZplFieldHex(const S: string): string;
     function ZplToPplaOneFormat(const ZplFormat: string; const LabelWidthDots, LabelHeightDots: Integer;
       out Copies: Integer): string;
-    procedure PrintZplAsPplaToSelectedPrinter(const PrinterName, ZplText: string);
+    procedure PrintZplAsPplaToSelectedPrinter(const PrinterName, ZplText: string; const FromIndex, ToIndex: Integer);
   public
     { Public declarations }
   end;
@@ -124,18 +110,39 @@ begin
     Result := 203;
 end;
 
+procedure TForm1.ReadLabelRange(out FromIndex, ToIndex: Integer);
+var
+  SFrom, STo: string;
+  Tmp: Integer;
+begin
+  // Range 1-based. Em branco = sem filtro.
+  SFrom := Trim(edtFrom.Text);
+  STo := Trim(edtTo.Text);
+
+  FromIndex := StrToIntDef(SFrom, 0);
+  ToIndex := StrToIntDef(STo, 0);
+
+  if FromIndex < 0 then FromIndex := 0;
+  if ToIndex < 0 then ToIndex := 0;
+
+  // Se informar só "até", assume "de 1".
+  if (FromIndex = 0) and (ToIndex > 0) then
+    FromIndex := 1;
+
+  // Se invertido, corrige.
+  if (FromIndex > 0) and (ToIndex > 0) and (FromIndex > ToIndex) then
+  begin
+    Tmp := FromIndex;
+    FromIndex := ToIndex;
+    ToIndex := Tmp;
+  end;
+end;
+
 function CmToDots(const Cm: Double; const Dpi: Integer): Integer;
 const
   CmPerInch = 2.54;
 begin
   Result := Round((Cm / CmPerInch) * Dpi);
-end;
-
-function CmToInches(const Cm: Double): Double;
-const
-  CmPerInch = 2.54;
-begin
-  Result := Cm / CmPerInch;
 end;
 
 function HasCmd(const BlockUpper, Cmd: string): Boolean;
@@ -391,15 +398,6 @@ begin
     OutLines[High(OutLines)] := Line;
   end;
   Result := OutLines;
-end;
-
-function ExtractBetween(const S, StartToken, EndToken: string; const StartAt: Integer; out StartPos, EndPos: Integer): string;
-begin
-  StartPos := PosEx(StartToken, S, StartAt);
-  if StartPos = 0 then Exit('');
-  EndPos := PosEx(EndToken, S, StartPos);
-  if EndPos = 0 then Exit('');
-  Result := Copy(S, StartPos, (EndPos - StartPos) + Length(EndToken));
 end;
 
 function GetCmdParam(const Line, Cmd: string): string;
@@ -666,17 +664,25 @@ begin
   end;
 end;
 
-procedure TForm1.PrintZplAsPplaToSelectedPrinter(const PrinterName, ZplText: string);
+procedure TForm1.PrintZplAsPplaToSelectedPrinter(const PrinterName, ZplText: string; const FromIndex, ToIndex: Integer);
 var
   i, StartPos, EndPos: Integer;
   Block: string;
   Copies: Integer;
   Ppla: string;
   Bytes: TBytes;
+  CurIndex, TotalFormats, SelectedFormats, EffectiveTo: Integer;
 const
   LabelW = 800; // 10cm @203dpi
   LabelH = 400; // 5cm @203dpi
 begin
+  CurIndex := 0;
+  TotalFormats := 0;
+  SelectedFormats := 0;
+  EffectiveTo := ToIndex;
+  if (FromIndex = 0) and (ToIndex = 0) then
+    EffectiveTo := 0;
+
   i := 1;
   while i <= Length(ZplText) do
   begin
@@ -687,14 +693,26 @@ begin
     if EndPos = 0 then
       Break;
 
+    Inc(CurIndex);
+    TotalFormats := CurIndex;
     Block := Copy(ZplText, StartPos, (EndPos - StartPos) + 3);
-    Ppla := ZplToPplaOneFormat(Block, LabelW, LabelH, Copies);
-    Bytes := TEncoding.UTF8.GetBytes(Ppla);
-    SendRawToPrinter(PrinterName, Bytes, 'PPLA (convertido)');
-
-    Log(Format('Formato convertido e enviado em PPLA (cópias=%d).', [Copies]));
+    if ((FromIndex = 0) or (CurIndex >= FromIndex)) and
+       ((EffectiveTo = 0) or (CurIndex <= EffectiveTo)) then
+    begin
+      Ppla := ZplToPplaOneFormat(Block, LabelW, LabelH, Copies);
+      Bytes := TEncoding.UTF8.GetBytes(Ppla);
+      SendRawToPrinter(PrinterName, Bytes, 'PPLA (convertido)');
+      Inc(SelectedFormats);
+      Log(Format('Formato #%d convertido e enviado em PPLA (cópias=%d).', [CurIndex, Copies]));
+    end;
     i := EndPos + 3;
+    if (EffectiveTo > 0) and (CurIndex >= EffectiveTo) then
+      Break;
   end;
+
+  if (FromIndex > 0) or (ToIndex > 0) then
+    Log(Format('Filtro aplicado no PPLA: total=%d, selecionadas=%d (de=%d até=%d).',
+      [TotalFormats, SelectedFormats, FromIndex, ToIndex]));
 end;
 
 procedure TForm1.FormCreate(Sender: TObject);
@@ -719,42 +737,6 @@ begin
   end;
 end;
 
-procedure TForm1.btnImprimirClick(Sender: TObject);
-var
-  PrinterName, FileName: string;
-  Bytes: TBytes;
-  ZplText, FinalZpl: string;
-  Dpi: Integer;
-  W, H: Integer;
-begin
-  PrinterName := SelectedPrinter;
-  if PrinterName = '' then
-    raise Exception.Create('Selecione uma impressora.');
-
-  if UpperCase(PrinterName).Contains('PPLA') then
-    Log('Aviso: a impressora/driver parece estar em PPLA. ZPL pode não imprimir (necessário ZPL/ZPL emulation).');
-
-  FileName := Trim(edtArquivo.Text);
-  if (FileName = '') or (not TFile.Exists(FileName)) then
-    raise Exception.Create('Selecione um arquivo TXT válido.');
-
-  Bytes := TFile.ReadAllBytes(FileName);
-  ZplText := TEncoding.UTF8.GetString(Bytes);
-
-  FinalZpl := ZplText;
-  if chkNormalizar.Checked then
-  begin
-    Dpi := ReadDpi;
-    W := CmToDots(10, Dpi);
-    H := CmToDots(5, Dpi);
-    FinalZpl := EnsureLabelSizePerFormat(FinalZpl, W, H);
-    Log(Format('Normalizado para 10x5cm (%ddpi): ^PW=%d ^LL=%d', [Dpi, W, H]));
-  end;
-
-  Bytes := TEncoding.UTF8.GetBytes(FinalZpl);
-  SendRawToPrinter(PrinterName, Bytes, ExtractFileName(FileName));
-  Log('Enviado para: ' + PrinterName);
-end;
 
 procedure TForm1.btnImprimirPplaClick(Sender: TObject);
 var
@@ -762,6 +744,7 @@ var
   ZplText, FinalZpl: string;
   Dpi: Integer;
   W, H: Integer;
+  FromIndex, ToIndex: Integer;
 begin
   PrinterName := SelectedPrinter;
   if PrinterName = '' then
@@ -783,7 +766,8 @@ begin
   end;
 
   Log('Convertendo ZPL -> PPLA e enviando em RAW...');
-  PrintZplAsPplaToSelectedPrinter(PrinterName, FinalZpl);
+  ReadLabelRange(FromIndex, ToIndex);
+  PrintZplAsPplaToSelectedPrinter(PrinterName, FinalZpl, FromIndex, ToIndex);
   Log('Concluído.');
 end;
 
@@ -799,228 +783,8 @@ begin
   Result := TEncoding.UTF8.GetString(Bytes);
 end;
 
-function TForm1.BuildFinalZpl(const ZplText: string): string;
-var
-  Dpi: Integer;
-  W, H: Integer;
-begin
-  Result := ZplText;
-  if chkNormalizar.Checked then
-  begin
-    Dpi := ReadDpi;
-    W := CmToDots(10, Dpi);
-    H := CmToDots(5, Dpi);
-    Result := EnsureLabelSizePerFormat(Result, W, H);
-  end;
-end;
 
-function ReplacePQWithOne(const Block: string): string;
-var
-  P, EndP: Integer;
-begin
-  Result := Block;
-  P := Pos('^PQ', UpperCase(Result));
-  if P = 0 then
-    Exit;
 
-  EndP := PosEx('^', Result, P + 3);
-  if EndP = 0 then
-    Exit;
 
-  // troca qualquer coisa entre ^PQ e o próximo ^ por ^PQ1
-  Result := Copy(Result, 1, P - 1) + '^PQ1' + Copy(Result, EndP, MaxInt);
-end;
-
-function TForm1.LimitZplForLabelaryPreview(const ZplText: string; const MaxFormats: Integer): string;
-var
-  i, Count, StartPos, EndPos: Integer;
-  OutText, Block: string;
-begin
-  // Labelary limita em 50 formatos/duplicações. Aqui:
-  // - mantém só os primeiros MaxFormats blocos ^XA...^XZ
-  // - força ^PQ1 (evita duplicação estourar limite)
-  OutText := '';
-  i := 1;
-  Count := 0;
-
-  while (i <= Length(ZplText)) and (Count < MaxFormats) do
-  begin
-    StartPos := PosEx('^XA', ZplText, i);
-    if StartPos = 0 then
-      Break;
-
-    EndPos := PosEx('^XZ', ZplText, StartPos);
-    if EndPos = 0 then
-      Break;
-
-    Block := Copy(ZplText, StartPos, (EndPos - StartPos) + 3);
-    Block := ReplacePQWithOne(Block);
-    OutText := OutText + Block + sLineBreak;
-
-    Inc(Count);
-    i := EndPos + 3;
-  end;
-
-  Result := OutText;
-end;
-
-function TForm1.BuildLabelaryUrlForPdf(const Dpi: Integer; const WidthCm, HeightCm: Double): string;
-var
-  Dpmm: Integer;
-  WIn, HIn: Double;
-begin
-  // Labelary usa 6dpmm (152dpi), 8dpmm (203dpi), 12dpmm (300dpi), 24dpmm (600dpi)
-  if Dpi >= 290 then
-    Dpmm := 12
-  else
-    Dpmm := 8;
-
-  WIn := CmToInches(WidthCm);
-  HIn := CmToInches(HeightCm);
-  // Para PDF com múltiplas etiquetas: omitir o índice no final da URL.
-  Result := Format('https://api.labelary.com/v1/printers/%ddpmm/labels/%.3fx%.3f/',
-    [Dpmm, WIn, HIn]);
-end;
-
-procedure TForm1.SaveBytesToFileAndOpen(const Bytes: TBytes; const FilePath: string);
-begin
-  TFile.WriteAllBytes(FilePath, Bytes);
-  ShellExecute(Handle, 'open', PChar(FilePath), nil, nil, SW_SHOWNORMAL);
-end;
-
-function TForm1.StreamToBytes(Stream: TStream): TBytes;
-var
-  MS: TMemoryStream;
-begin
-  SetLength(Result, 0);
-  if Stream = nil then
-    Exit;
-
-  MS := TMemoryStream.Create;
-  try
-    try
-      Stream.Position := 0;
-    except
-      // ignore if stream is not seekable
-    end;
-    MS.CopyFrom(Stream, 0);
-    if MS.Size > 0 then
-    begin
-      SetLength(Result, MS.Size);
-      Move(MS.Memory^, Result[0], MS.Size);
-    end;
-  finally
-    MS.Free;
-  end;
-end;
-
-procedure TForm1.btnPreviewClick(Sender: TObject);
-var
-  ZplText, FinalZpl: string;
-  Dpi: Integer;
-  Client: TNetHTTPClient;
-  ContentBytes: TBytes;
-  ContentStream: TBytesStream;
-  Resp: IHTTPResponse;
-  PdfBytes: TBytes;
-  Url: string;
-  OutFile: string;
-  Rotation: Integer;
-begin
-  // Preview via Labelary (online): gera PDF multipágina para vários ^XA...^XZ.
-  ZplText := GetZplFromSelectedFile;
-  FinalZpl := BuildFinalZpl(ZplText);
-  FinalZpl := LimitZplForLabelaryPreview(FinalZpl, 50);
-  Dpi := ReadDpi;
-
-  SaveDialog1.FileName := ChangeFileExt(ExtractFileName(Trim(edtArquivo.Text)), '.pdf');
-  if not SaveDialog1.Execute then
-    Exit;
-  OutFile := SaveDialog1.FileName;
-
-  Url := BuildLabelaryUrlForPdf(Dpi, 10, 5);
-  Log('Gerando preview (PDF) via Labelary (máx 50 etiquetas, ^PQ=1)...');
-
-  Client := TNetHTTPClient.Create(nil);
-  try
-    Client.ConnectionTimeout := 15000;
-    Client.ResponseTimeout := 30000;
-    Client.CustomHeaders['Accept'] := 'application/pdf';
-    // O Labelary exige Content-Type: application/x-www-form-urlencoded (com o ZPL cru no corpo).
-    Client.CustomHeaders['Content-Type'] := 'application/x-www-form-urlencoded';
-    // Rotação é via header X-Rotation (0/90/180/270).
-    // Ajuste aqui se seu preview estiver girado.
-    Rotation := 0;
-    Client.CustomHeaders['X-Rotation'] := Rotation.ToString;
-
-    // Enviar como UTF-8 (o seu ZPL usa ^CI28)
-    ContentBytes := TEncoding.UTF8.GetBytes(FinalZpl);
-    ContentStream := TBytesStream.Create(ContentBytes);
-    try
-      Resp := Client.Post(Url, ContentStream);
-      if (Resp = nil) or (Resp.StatusCode < 200) or (Resp.StatusCode >= 300) then
-        raise Exception.CreateFmt('Falha ao gerar preview. HTTP %d %s', [Resp.StatusCode, Resp.StatusText]);
-
-      PdfBytes := StreamToBytes(Resp.ContentStream);
-      if Length(PdfBytes) = 0 then
-        raise Exception.Create('Preview retornou vazio.');
-      SaveBytesToFileAndOpen(PdfBytes, OutFile);
-      Log('Preview salvo em: ' + OutFile);
-    finally
-      ContentStream.Free;
-    end;
-  finally
-    Client.Free;
-  end;
-end;
-
-procedure TForm1.btnSalvarZplClick(Sender: TObject);
-var
-  ZplText, FinalZpl: string;
-  OutFile: string;
-  Utf8NoBom: TEncoding;
-begin
-  ZplText := GetZplFromSelectedFile;
-  FinalZpl := BuildFinalZpl(ZplText);
-  FinalZpl := LimitZplForLabelaryPreview(FinalZpl, 50);
-
-  SaveDialog2.FileName := ChangeFileExt(ExtractFileName(Trim(edtArquivo.Text)), '.10x5.zpl');
-  if not SaveDialog2.Execute then
-    Exit;
-  OutFile := SaveDialog2.FileName;
-
-  Utf8NoBom := TUTF8Encoding.Create(False);
-  try
-    TFile.WriteAllText(OutFile, FinalZpl, Utf8NoBom);
-  finally
-    Utf8NoBom.Free;
-  end;
-
-  Log('ZPL salvo (UTF-8) em: ' + OutFile);
-  Log('Dica: no Labelary viewer ajuste Label Size para 100 x 50 mm e Print Density 8dpmm (203dpi).');
-end;
-
-procedure TForm1.btnTesteClick(Sender: TObject);
-var
-  PrinterName: string;
-  Zpl: string;
-  Bytes: TBytes;
-begin
-  PrinterName := SelectedPrinter;
-  if PrinterName = '' then
-    raise Exception.Create('Selecione uma impressora.');
-
-  Zpl :=
-    '^XA' +
-    '^CI28' + // UTF-8
-    '^PW800^LL400' + // 10x5cm @203dpi (aprox)
-    '^FO30,30^A0N,40,40^FDTESTE ZPL (UTF-8): Çãõ^FS' +
-    '^FO30,90^BY2,2,60^BCN,60,N,N^FD1234567890^FS' +
-    '^XZ';
-
-  Bytes := TEncoding.UTF8.GetBytes(Zpl);
-  SendRawToPrinter(PrinterName, Bytes, 'Teste ZPL');
-  Log('Teste ZPL enviado para: ' + PrinterName);
-end;
 
 end.
